@@ -1,57 +1,80 @@
-#!/bin/bash
-# https://github.com/b4skyx/scmenu
+#!/bin/sh
+
+dmenu_cmd="dmenu"
+# dmenu_cmd="dmenu -l 10 -c -bw 1"
+file_path="$HOME/Pictures/screenshots"
+file_format="Screenshot_%Y%m%d_%H%M%S.png"
+
+# Detect if the directory exists, if not, create it
+[ ! -d "$file_path" ] && mkdir -p "$file_path"
+
 # Check whether the dependencies have been installed or not
-type curl &>/dev/null || {
+type curl >/dev/null || {
 	echo "Couldn't find curl, dependency not satisfied." >&2
 	exit 17
 }
-type maim &>/dev/null || {
+
+type maim >/dev/null || {
 	echo "Couldn't find maim, which is required to take screenshots." >&2
 	exit 17
 }
 
 # Fallback to dmenu if rofi is not found
-dmenu_cmd="rofi -dmenu"
-type rofi&>/dev/null || {
-	type dmenu&>/dev/null || {
+type dmenu >/dev/null || {
+	type rofi >/dev/null || {
 		echo "Neither rofi nor dmenu installed..." >&2
 		exit 17
 	}
-	dmenu_cmd="dmenu"
+	dmenu_cmd="rofi -dmenu"
 }
 
-
 # Help message
-function helpfn() {
-	echo "Scmenu, a screenshot wrapper built around maim" >&2
-	echo "Menu navigation through dmenu/rofi" >&2
-	echo "Note: Make sure you have the dependencies installed" >&2
-	echo "Usage: Put this script in your path and bind your desired key for quick launch"
+helpfn() {
+	# Define color codes
+	# red=$(tput setaf 1)
+	green=$(tput setaf 2)
+	reset=$(tput sgr0)
+	echo "Scmenu, a screenshot wrapper built around maim"
+	echo "Menu navigation through dmenu/rofi"
+	echo ""
+	echo "${green}Note:${reset} Make sure you have the dependencies installed."
+	echo "      Put this script in your path and bind your desired key for quick launch"
+	# echo "${green}Usage:${reset} "
+    # echo "${green}      scmenu${reset} [OPTION]"
+    echo "OPTIONS:"
+    echo "  -h | --help     Display this help message"
+	# echo "   r |   rofi     Use rofi instead of dmenu."
+	# echo "   d |   dmenu    Use dmenu (default)"
+    # echo ""
+    # echo "${red}Example:"
+    # echo "  ${green}scmenu${reset} r"
+    echo ""
 }
 
 # Set inital options and choices
 
-save_folder="$HOME/Screenshots"
-options=("Fullscreen\nSelection\nCurrent Window\nTimer")
+save_folder="$file_path"
+options=$(printf "Fullscreen\nSelection\nCurrent Window\nTimer")
 choice=""
 
 # Update choice as required
-function get_choice() {
+get_choice() {
 	if [ -e /tmp/deletion_link ]
 	then
-		options+=$"\nDeletion Link"
+		options="$options\nDeletion Link"
+
 	fi
-	choice=$(echo -e "$options" | $dmenu_cmd -p "Select Type")
+	choice=$(printf "%s" "$options" | $dmenu_cmd -p "Select Type")
 }
 
 # Processing the choices made by the user
-function runner() {
-	file_name=$(date +Screenshot_%d%m%y_%H%M%S.png)
+runner() {
+	file_name=$(date +"$file_format")
 	if [ "$choice" = "Timer" ]
 	then
-		seconds=`$dmenu_cmd "After number of seconds"`
-		choice=$(echo -e "Fullscreen\nCurrent Window" | $dmenu_cmd -p "Type")
-		sleep "$seconds"
+		seconds=$(printf "3 Sec [Recomended]\n1 Sec\n2 Sec\n4 Sec\n5 Sec" | $dmenu_cmd -p "Delay")
+		choice=$(printf "Fullscreen\nCurrent Window" | $dmenu_cmd -p "Type")
+		sleep "$(echo "$seconds" | cut -c1)"
 		runner
 	fi
 	if [ "$choice" = "Deletion Link" ]
@@ -70,14 +93,14 @@ function runner() {
 		save_clip
 	elif [ "$choice" = "Current Window" ]
 	then
-		maim -i $(xdotool getactivewindow) /tmp/screenshot.png
+		maim -i "$(xdotool getactivewindow)" /tmp/screenshot.png
 		save_clip
 	fi
 }
 
 # Upload screenshot to imgur
 
-function upload_to_imgur(){
+upload_to_imgur(){
 
 	# Set client_id for the imgur api
 	# Replace this with your own id if required
@@ -85,7 +108,7 @@ function upload_to_imgur(){
 	client_id="${IMGUR_CLIENT_ID:=$default_client_id}"
 
 	# Send a request through curl of the screenshot
-	response=`curl -s -H "Authorization: Client-ID $client_id" -H "Expect: " -F "image=@/tmp/screenshot.png" https://api.imgur.com/3/image.xml`
+	response=$(curl -s -H "Authorization: Client-ID $client_id" -H "Expect: " -F "image=@/tmp/screenshot.png" https://api.imgur.com/3/image.xml)
 
 	# Error Handling
 
@@ -93,7 +116,7 @@ function upload_to_imgur(){
 	if [ $? -ne 0 ]; then
 		echo "Upload failed" >&2
 		exit 1
-	# Else parse the response and check for upload status.
+		# Else parse the response and check for upload status.
 	elif echo "$response" | grep -q 'success="0"'; then
 		echo "Error message:" >&2
 		msg="${response##*<error>}"
@@ -108,14 +131,14 @@ function upload_to_imgur(){
 	delete_hash="${delete_hash%%</deletehash>*}"
 
 	# Copy the image link to clipboard and save the deletion_link for further use.
-	echo $url | sed 's/^http:/https:/' | xclip -selection clipboard
+	echo "$url" | sed 's/^http:/https:/' | xclip -selection clipboard
 	echo "https://imgur.com/delete/$delete_hash" > /tmp/deletion_link
 }
 
-# Function to save the screenshot
-function save_clip(){
-	options=("Copy to Clipboard\nSave Image\nUpload to Imgur")
-	choice=$(echo -e "$options" | $dmenu_cmd -p "Select Type")
+# to save the screenshot
+save_clip(){
+	options=$(printf "Copy to Clipboard\nSave Image\nUpload to Imgur")
+	choice=$(printf "%s" "$options" | $dmenu_cmd -p "Select Type")
 
 	if [ "$choice" = "Copy to Clipboard" ]
 	then
@@ -123,7 +146,7 @@ function save_clip(){
 		notify-send -i /tmp/screenshot.png "Screenshot Captured!!" "Copied to clipboard"
 	elif [ "$choice" = "Save Image" ]
 	then
-		cp /tmp/screenshot.png $save_folder/$file_name
+		cp /tmp/screenshot.png "$save_folder"/"$file_name"
 		notify-send -i /tmp/screenshot.png "Screenshot Saved!!" "$file_name"
 	elif [ "$choice" = "Upload to Imgur" ]
 	then
@@ -133,13 +156,18 @@ function save_clip(){
 	fi
 }
 
-
-if [ "$1" == "-h" -o "$1" == "--help" ]; then
-	helpfn
-	exit 0
-elif [ $# -eq 0 ]; then
-	get_choice
-	runner
-else
-	echo "Bad arguments passed.">&2
-fi
+case "$1" in
+	-h|--help)
+		helpfn
+		exit 0
+		;;
+	*)
+		if [ $# -eq 0 ]; then
+			get_choice
+			runner
+		else
+			printf "Bad arguments passed.\n" >&2
+			exit 1
+		fi
+		;;
+esac
